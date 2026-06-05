@@ -13,12 +13,18 @@ type VideoTileProps = {
 const VideoTile = ({ stream, label, muted, placeholder }: VideoTileProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Attach the stream to the element whenever it changes, since srcObject is not a prop
+  // Bind the stream then explicitly start playback, since srcObject is not a prop and the autoplay
+  // attribute alone is unreliable on iOS — set muted before play() so the browser allows autoplay
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
+    const video = videoRef.current;
+    if (video === null || stream === null) {
+      return;
     }
-  }, [stream]);
+    video.muted = muted;
+    video.srcObject = stream;
+    // Swallow the rejection the autoplay policy may throw; playback resumes on the next user gesture
+    void video.play().catch(() => {});
+  }, [stream, muted]);
 
   return (
     <div className="relative flex-1 overflow-hidden rounded-lg bg-black">
@@ -52,7 +58,8 @@ export const VideoFeeds = () => {
   return (
     <div className="flex h-full gap-2">
       <VideoTile stream={localStream} label="You • Live" muted placeholder={localPlaceholder} />
-      <VideoTile stream={remoteStream} label="Opponent • Live" muted={false} placeholder={remotePlaceholder} />
+      {/* Opponent muted too: the captured stream is video-only, so muting only guarantees autoplay */}
+      <VideoTile stream={remoteStream} label="Opponent • Live" muted placeholder={remotePlaceholder} />
     </div>
   );
 };
