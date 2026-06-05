@@ -1,0 +1,50 @@
+# docker-compose.yml — orchestrates the web client, signaling server, and TURN server.
+# Configure by copying .env.example to .env. Defaults target a localhost demo.
+
+services:
+  # NestJS + Socket.IO signaling and authoritative game server
+  server:
+    build:
+      context: ./server
+    image: live-ttt-server
+    environment:
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  # React/Vite static client served by nginx; VITE_* are inlined at build time
+  web:
+    build:
+      context: ./web
+      args:
+        # Empty = same-origin: nginx reverse-proxies /socket.io, so signaling rides the web's
+        # HTTPS tunnel with no mixed-content (no need to bake the random tunnel URL in)
+        VITE_SOCKET_URL: ""
+        VITE_STUN_URL: "stun:${PUBLIC_HOST}:3478"
+        VITE_TURN_URL: "turn:${PUBLIC_HOST}:3478"
+        VITE_TURN_USERNAME: "${TURN_USERNAME}"
+        VITE_TURN_CREDENTIAL: "${TURN_PASSWORD}"
+    image: live-ttt-web
+    ports:
+      - "${WEB_PORT}:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  # coturn STUN/TURN; credentials and external IP injected from .env at runtime
+  coturn:
+    image: coturn/coturn:4.6
+    command:
+      - "-c"
+      - "/etc/coturn/turnserver.conf"
+      - "--external-ip=${COTURN_EXTERNAL_IP}"
+      - "--user=${TURN_USERNAME}:${TURN_PASSWORD}"
+      - "-v"
+    volumes:
+      - "./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro"
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+    restart: unless-stopped
